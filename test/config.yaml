@@ -1,0 +1,42 @@
+# GOM2K Test Configuration - Plaintext
+
+mqtt:
+  broker:
+    host: "localhost"
+    port: 1883
+    use_tls: false
+    use_os_certs: false
+  auth:
+    username: ""
+    password: ""
+  client:
+    client_id: "gom2k-test-{random}"
+    qos: 0
+  topics:
+    subscribe: ["test/#", "sensor/#"]
+    retain_only: false
+
+kafka:
+  brokers: 
+    - "localhost:9092"
+  security:
+    protocol: "PLAINTEXT"
+  consumer:
+    group_id: "gom2k-test-1"
+  partitioning: "key"
+
+bridge:
+  mapping:
+    kafka_prefix: "gom2k"
+    max_topic_levels: 3
+  retry:
+    connection_timeout: "30s"
+  logging:
+    level: "info"
+  features:
+    mqtt_to_kafka: true
+    kafka_to_mqtt: true
+  kafka:
+    auto_create_topics: true
+    default_partitions: 3
+    replication_factor: 1

@@ -1,0 +1,185 @@
+# GOM2K MQTT-Kafka Bridge - Sample Configuration
+# This file contains all available configuration options with their default values
+# and explanations. Copy this file to config.yaml and modify as needed.
+
+# MQTT Configuration
+mqtt:
+  broker:
+    # MQTT broker hostname or IP address (REQUIRED)
+    host: "mqtt.example.com"
+    
+    # MQTT broker port (default: 1883 for plaintext, 8883 for TLS)
+    port: 1883
+    
+    # Enable TLS/SSL encryption for MQTT connection (default: false)
+    use_tls: false
+    
+    # Use operating system's certificate store for TLS verification (default: false)
+    # When true, uses system CA certificates instead of custom certificate files
+    use_os_certs: false
+  
+  auth:
+    # MQTT username (leave empty for anonymous connection)
+    username: ""
+    
+    # MQTT password (leave empty for anonymous connection)
+    password: ""
+  
+  client:
+    # MQTT client ID - use {random} for random suffix (default: "gom2k-{random}")
+    # This prevents client ID conflicts when running multiple bridge instances
+    client_id: "gom2k-{random}"
+    
+    # MQTT Quality of Service level (default: 0)
+    # 0 = At most once (fire and forget)
+    # 1 = At least once (acknowledged delivery)
+    # 2 = Exactly once (assured delivery)
+    qos: 0
+  
+  topics:
+    # List of MQTT topic patterns to subscribe to (REQUIRED)
+    # Use MQTT wildcards: + (single level), # (multi-level)
+    # Examples: ["sensor/+/temperature", "homeassistant/#", "#"]
+    subscribe: ["#"]
+    
+    # Only process retained messages (default: false)
+    # When true, ignores non-retained messages
+    retain_only: false
+
+# Kafka Configuration  
+kafka:
+  # List of Kafka broker addresses (REQUIRED)
+  # Format: ["host:port", "host2:port2"]
+  brokers:
+    - "kafka.example.com:9092"
+  
+  security:
+    # Security protocol (default: "PLAINTEXT")
+    # Options: "PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"
+    protocol: "PLAINTEXT"
+    
+    ssl:
+      # SSL truststore configuration (required when protocol is SSL)
+      truststore:
+        # Path to truststore file (JKS or PKCS12 format)
+        location: "/path/to/kafka.truststore.jks"
+        
+        # Truststore password
+        password: "truststore-password"
+      
+      # SSL keystore configuration (required for mutual SSL)
+      keystore:
+        # Path to keystore file (JKS or PKCS12 format)
+        location: "/path/to/kafka.keystore.jks"
+        
+        # Keystore password
+        password: "keystore-password"
+        
+        # Private key password (may be same as keystore password)
+        key_password: "key-password"
+  
+  consumer:
+    # Kafka consumer group ID (default: "gom2k-1")
+    # Different group IDs allow multiple bridge instances to consume the same messages
+    # Same group ID splits messages between instances (load balancing)
+    group_id: "gom2k-1"
+  
+  # Partitioning strategy for produced messages (default: "key")
+  # "key" = Use message key for partitioning (maintains order per MQTT topic)
+  # "random" = Random partition assignment
+  # "round-robin" = Round-robin partition assignment
+  partitioning: "key"
+
+# Bridge Behavior Configuration
+bridge:
+  mapping:
+    # Prefix for all Kafka topics created by the bridge (default: "gom2k")
+    # MQTT topic "sensor/temp" becomes Kafka topic "gom2k.sensor.temp"
+    kafka_prefix: "gom2k"
+    
+    # Maximum MQTT topic levels to include in Kafka topic name (default: 3)
+    # Prevents topic explosion in deep hierarchies
+    # Example: "home/room1/sensor/temp/celsius" -> "gom2k.home.room1" (truncated at 3 levels)
+    max_topic_levels: 3
+  
+  retry:
+    # Connection retry timeout (default: "30s")
+    # How long to wait before retrying failed connections
+    # Valid units: s, m, h (e.g., "30s", "5m", "1h")
+    connection_timeout: "30s"
+  
+  logging:
+    # Log level (default: "info")
+    # Options: "debug", "info", "warn", "error"
+    # debug = Verbose message tracing
+    # info = Startup/shutdown and important events  
+    # warn = Retries and recoverable errors
+    # error = Fatal errors only
+    level: "info"
+  
+  features:
+    # Enable MQTT→Kafka message forwarding (default: true)
+    # When true, subscribes to MQTT and forwards messages to Kafka
+    mqtt_to_kafka: true
+    
+    # Enable Kafka→MQTT message forwarding (default: true) 
+    # When true, consumes from Kafka and forwards messages to MQTT
+    kafka_to_mqtt: true
+  
+  kafka:
+    # Automatically create Kafka topics if they don't exist (default: true)
+    # When false, topics must be created manually before use
+    auto_create_topics: true
+    
+    # Default number of partitions for auto-created topics (default: 3)
+    # More partitions = better parallelism but more overhead
+    default_partitions: 3
+    
+    # Replication factor for auto-created topics (default: 1)
+    # Number of copies of each partition across Kafka brokers
+    # Should be ≤ number of brokers (typically 3 for production)
+    replication_factor: 1
+
+# Examples of different configurations:
+
+# Example 1: Home Assistant Integration
+# mqtt:
+#   broker:
+#     host: "homeassistant.local"
+#     port: 1883
+#   topics:
+#     subscribe: ["homeassistant/#"]
+# bridge:
+#   mapping:
+#     kafka_prefix: "homeassistant"
+
+# Example 2: SSL/TLS Production Setup  
+# mqtt:
+#   broker:
+#     host: "mqtt.company.com"
+#     port: 8883
+#     use_tls: true
+#     use_os_certs: true
+#   auth:
+#     username: "bridge-user"
+#     password: "secure-password"
+# kafka:
+#   brokers: ["kafka1.company.com:9093", "kafka2.company.com:9093"]
+#   security:
+#     protocol: "SSL"
+#     ssl:
+#       truststore:
+#         location: "/etc/kafka/ssl/kafka.truststore.jks"
+#         password: "${KAFKA_TRUSTSTORE_PASSWORD}"
+#       keystore:
+#         location: "/etc/kafka/ssl/kafka.keystore.jks" 
+#         password: "${KAFKA_KEYSTORE_PASSWORD}"
+#         key_password: "${KAFKA_KEY_PASSWORD}"
+
+# Example 3: Multi-Region Deployment
+# kafka:
+#   consumer:
+#     group_id: "gom2k-us-west"  # Different per region
+# bridge:
+#   mapping:
+#     kafka_prefix: "iot-usw"    # Region-specific prefix

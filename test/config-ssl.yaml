@@ -1,0 +1,50 @@
+# GOM2K Test Configuration - SSL/TLS
+
+mqtt:
+  broker:
+    host: "localhost"
+    port: 8883
+    use_tls: true
+    use_os_certs: false
+  auth:
+    username: "testuser"
+    password: "testpass"
+  client:
+    client_id: "gom2k-ssl-test-{random}"
+    qos: 0
+  topics:
+    subscribe: ["test/#", "sensor/#"]
+    retain_only: false
+
+kafka:
+  brokers: 
+    - "localhost:9093"
+  security:
+    protocol: "SSL"
+    ssl:
+      truststore:
+        location: "./test/ssl/certs/kafka.truststore.jks"
+        password: "testpass"
+      keystore:
+        location: "./test/ssl/certs/kafka.keystore.jks"
+        password: "testpass"
+        key_password: "testpass"
+  consumer:
+    group_id: "gom2k-ssl-test-1"
+  partitioning: "key"
+
+bridge:
+  mapping:
+    kafka_prefix: "gom2k"
+    max_topic_levels: 3
+  retry:
+    connection_timeout: "30s"
+  logging:
+    level: "info"
+  features:
+    mqtt_to_kafka: true
+    kafka_to_mqtt: true
+  kafka:
+    auto_create_topics: true
+    default_partitions: 3
+    replication_factor: 1
