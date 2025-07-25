@@ -4,15 +4,20 @@ A high-performance bidirectional bridge between MQTT and Apache Kafka, designed 
 
 ## Features
 
-- **Bidirectional messaging** - MQTT ↔ Kafka message forwarding
-- **SSL/TLS support** - Secure connections for both MQTT and Kafka
+- **Bidirectional messaging** - (but intended for MQTT source and sink with Kafka in the middle)
+- **SSL/TLS support** - Both MQTT and Kafka
 - **Topic mapping** - Configurable MQTT to Kafka topic transformation
 - **Auto-topic creation** - Automatically creates Kafka topics as needed
 - **Message integrity** - Preserves QoS, retain flags, and timestamps
 - **Consumer groups** - Scalable Kafka consumption with configurable groups
-- **Enterprise ready** - Graceful shutdown, error handling, comprehensive logging
 
 ## Quick Start
+
+### 0. Test
+```bash
+cd test
+./tesh.sh
+```
 
 ### 1. Configure
 ```bash
@@ -49,7 +54,7 @@ bridge:
     kafka_to_mqtt: true
 ```
 
-See `configs/sample-config.yaml` for all available options.
+See `configs/sample-config.yaml` for more.
 
 ## Topic Mapping
 
