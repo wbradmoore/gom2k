@@ -1,3 +1,7 @@
+// Package kafka provides Kafka client implementations for both producing and consuming messages.
+// It includes SSL/TLS support with PKCS12 keystores, automatic topic creation, and message
+// transformation between MQTT and Kafka formats. The package handles connection management,
+// error recovery, and topic lifecycle operations.
 package kafka
 
 import (
@@ -19,15 +23,20 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
+// Producer handles sending messages to Kafka topics with SSL support and automatic topic creation.
+// It maintains a connection pool, tracks created topics to avoid duplicate creation attempts,
+// and provides thread-safe operations for concurrent message publishing.
 type Producer struct {
-	config        *types.KafkaConfig
-	bridgeConfig  *types.BridgeConfig
-	writer        *kafka.Writer
-	createdTopics map[string]bool
-	topicMutex    sync.RWMutex
+	config        *types.KafkaConfig     // Kafka connection and security configuration
+	bridgeConfig  *types.BridgeConfig    // Bridge-specific settings like topic creation parameters
+	writer        *kafka.Writer          // Underlying Kafka writer for message production
+	createdTopics map[string]bool        // Cache of topics already created by this producer
+	topicMutex    sync.RWMutex          // Protects the createdTopics map from concurrent access
 }
 
-// NewProducer creates a new Kafka producer
+// NewProducer creates a new Kafka producer with the provided configuration.
+// The producer supports SSL/TLS connections using PKCS12 keystores and can automatically
+// create topics based on the bridge configuration settings.
 func NewProducer(config *types.KafkaConfig, bridgeConfig *types.BridgeConfig) *Producer {
 	return &Producer{
 		config:        config,
@@ -36,7 +45,9 @@ func NewProducer(config *types.KafkaConfig, bridgeConfig *types.BridgeConfig) *P
 	}
 }
 
-// Connect initializes the Kafka producer
+// Connect establishes a connection to the Kafka cluster and initializes the producer.
+// It configures SSL/TLS settings if specified in the configuration and sets up
+// hash-based partitioning for consistent message distribution based on message keys.
 func (p *Producer) Connect() error {
 	// Create writer configuration
 	writerConfig := kafka.WriterConfig{
@@ -237,54 +248,86 @@ func (p *Producer) loadKeystorePKCS12(filename, password string) (tls.Certificat
 	return tlsCert, nil
 }
 
-// createTopicIfNeeded creates a Kafka topic if it doesn't exist and hasn't been created by this producer
+// createTopicIfNeeded creates a Kafka topic if it doesn't exist and hasn't been created by this producer.
+// This function is thread-safe and caches created topics to avoid duplicate operations.
 func (p *Producer) createTopicIfNeeded(ctx context.Context, topicName string) error {
-	// Check if we've already created this topic
-	p.topicMutex.RLock()
-	if p.createdTopics[topicName] {
-		p.topicMutex.RUnlock()
+	p.topicMutex.Lock()
+	defer p.topicMutex.Unlock()
+	
+	if p.isTopicAlreadyCreated(topicName) {
 		return nil
 	}
-	p.topicMutex.RUnlock()
 	
-	// Create connection for topic management
 	conn, err := p.createKafkaConn()
 	if err != nil {
 		return fmt.Errorf("failed to create Kafka connection: %w", err)
 	}
 	defer conn.Close()
 	
-	log.Printf("Creating Kafka topic: %s (partitions: %d, replication: %d)", 
-		topicName, p.bridgeConfig.Kafka.DefaultPartitions, p.bridgeConfig.Kafka.ReplicationFactor)
+	if err := p.createTopicWithConfig(conn, topicName); err != nil {
+		return err
+	}
 	
-	// Create the topic
-	topicConfig := kafka.TopicConfig{
+	p.markTopicAsCreated(topicName)
+	p.waitForTopicPropagation()
+	
+	return nil
+}
+
+// isTopicAlreadyCreated checks if we've already attempted to create this topic locally.
+func (p *Producer) isTopicAlreadyCreated(topicName string) bool {
+	return p.createdTopics[topicName]
+}
+
+// createTopicWithConfig handles the actual topic creation with proper configuration.
+func (p *Producer) createTopicWithConfig(conn *kafka.Conn, topicName string) error {
+	config := p.buildTopicConfig(topicName)
+	
+	log.Printf("Creating Kafka topic: %s (partitions: %d, replication: %d)", 
+		topicName, config.NumPartitions, config.ReplicationFactor)
+	
+	err := conn.CreateTopics(config)
+	return p.handleTopicCreationResult(err, topicName)
+}
+
+// buildTopicConfig constructs the topic configuration based on bridge settings.
+func (p *Producer) buildTopicConfig(topicName string) kafka.TopicConfig {
+	return kafka.TopicConfig{
 		Topic:             topicName,
 		NumPartitions:     p.bridgeConfig.Kafka.DefaultPartitions,
 		ReplicationFactor: p.bridgeConfig.Kafka.ReplicationFactor,
 	}
-	
-	err = conn.CreateTopics(topicConfig)
+}
+
+// handleTopicCreationResult processes the result of topic creation, handling "already exists" scenarios.
+func (p *Producer) handleTopicCreationResult(err error, topicName string) error {
 	if err != nil {
-		// Check if topic already exists (could have been created by another process)
-		if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "Topic already exists") {
+		if p.isTopicAlreadyExistsError(err) {
 			log.Printf("Topic %s already exists", topicName)
-		} else {
-			return fmt.Errorf("failed to create topic: %w", err)
+			return nil
 		}
-	} else {
-		log.Printf("✓ Successfully created Kafka topic: %s", topicName)
+		return fmt.Errorf("failed to create topic: %w", err)
 	}
 	
-	// Mark as created to avoid future attempts
-	p.topicMutex.Lock()
-	p.createdTopics[topicName] = true
-	p.topicMutex.Unlock()
-	
-	// Allow time for topic to propagate across Kafka cluster
-	time.Sleep(500 * time.Millisecond)
-	
+	log.Printf("✓ Successfully created Kafka topic: %s", topicName)
 	return nil
+}
+
+// isTopicAlreadyExistsError determines if an error indicates the topic already exists.
+func (p *Producer) isTopicAlreadyExistsError(err error) bool {
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "already exists") || 
+		   strings.Contains(errMsg, "Topic already exists")
+}
+
+// markTopicAsCreated updates the local cache to indicate this topic has been processed.
+func (p *Producer) markTopicAsCreated(topicName string) {
+	p.createdTopics[topicName] = true
+}
+
+// waitForTopicPropagation allows time for the topic to propagate across the Kafka cluster.
+func (p *Producer) waitForTopicPropagation() {
+	time.Sleep(500 * time.Millisecond)
 }
 
 // createKafkaConn creates a connection to Kafka for admin operations

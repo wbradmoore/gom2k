@@ -51,7 +51,7 @@ build_project() {
 # Run unit tests
 run_unit_tests() {
     print_step "Running unit tests..."
-    if cd .. && TERM=xterm-256color go test ./test/unit/... -v | sed --unbuffered $'s/^=== RUN   /RUNNING /; s/^--- PASS:/[\033[32mPASS\033[0m]/; s/^    --- PASS:/  └── [\033[32mPASS\033[0m]/; s/^--- FAIL:/[\033[31mFAIL\033[0m]/; s/^    --- FAIL:/  └── [\033[31mFAIL\033[0m]/'; then
+    if cd .. && TERM=xterm-256color go test ./test/unit/... -v -count=1 | sed --unbuffered $'s/^=== RUN   /RUNNING /; s/^--- PASS:/[\033[32mPASS\033[0m]/; s/^    --- PASS:/  └── [\033[32mPASS\033[0m]/; s/^--- FAIL:/[\033[31mFAIL\033[0m]/; s/^    --- FAIL:/  └── [\033[31mFAIL\033[0m]/'; then
         cd test
         print_success "Unit tests passed"
         return 0

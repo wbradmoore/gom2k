@@ -1,3 +1,6 @@
+// Package bridge provides bidirectional message forwarding between MQTT and Kafka systems.
+// It includes components for MQTT→Kafka, Kafka→MQTT, and bidirectional bridges,
+// handling message transformation, topic mapping, and error propagation.
 package bridge
 
 import (
@@ -9,7 +12,9 @@ import (
 	"gom2k/pkg/types"
 )
 
-// BidirectionalBridge handles both MQTT→Kafka and Kafka→MQTT flows
+// BidirectionalBridge orchestrates both MQTT→Kafka and Kafka→MQTT message flows.
+// It manages the lifecycle of both directional bridges and ensures proper
+// initialization, operation, and shutdown of the complete bidirectional system.
 type BidirectionalBridge struct {
 	mqttToKafka *MQTTToKafkaBridge
 	kafkaToMQTT *KafkaToMQTTBridge
@@ -17,7 +22,11 @@ type BidirectionalBridge struct {
 	wg          sync.WaitGroup
 }
 
-// NewBidirectionalBridge creates a new bidirectional bridge
+// NewBidirectionalBridge creates a new bidirectional bridge with the provided configuration.
+// The bridge will handle message flows based on the feature flags in the configuration:
+// - If MQTTToKafka is enabled, messages from MQTT topics will be forwarded to Kafka
+// - If KafkaToMQTT is enabled, messages from Kafka topics will be forwarded to MQTT
+// At least one direction must be enabled for the bridge to function.
 func NewBidirectionalBridge(config *types.Config) *BidirectionalBridge {
 	return &BidirectionalBridge{
 		mqttToKafka: NewMQTTToKafkaBridge(config),
@@ -26,7 +35,10 @@ func NewBidirectionalBridge(config *types.Config) *BidirectionalBridge {
 	}
 }
 
-// Start initializes and starts both bridge directions
+// Start initializes and starts the bidirectional bridge components based on configuration.
+// It launches goroutines for each enabled direction (MQTT→Kafka and/or Kafka→MQTT) and
+// monitors their operation. The method blocks until the context is cancelled or an error
+// occurs. At least one bridge direction must be enabled in the configuration.
 func (b *BidirectionalBridge) Start(ctx context.Context) error {
 	log.Println("Starting bidirectional MQTT-Kafka bridge...")
 
@@ -100,7 +112,9 @@ func (b *BidirectionalBridge) Stop() error {
 	return err2
 }
 
-// GetStatus returns the current status of both bridge directions
+// GetStatus returns the current operational status of both bridge directions.
+// This includes whether each direction is enabled in configuration and the overall
+// running state of the bridge system.
 func (b *BidirectionalBridge) GetStatus() BridgeStatus {
 	return BridgeStatus{
 		MQTTToKafkaEnabled: b.config.Bridge.Features.MQTTToKafka,
@@ -109,9 +123,11 @@ func (b *BidirectionalBridge) GetStatus() BridgeStatus {
 	}
 }
 
-// BridgeStatus represents the current status of the bridge
+// BridgeStatus represents the current operational status of the bidirectional bridge.
+// It provides information about which bridge directions are enabled and whether
+// the bridge system is currently running.
 type BridgeStatus struct {
-	MQTTToKafkaEnabled bool `json:"mqtt_to_kafka_enabled"`
-	KafkaToMQTTEnabled bool `json:"kafka_to_mqtt_enabled"`
-	IsRunning          bool `json:"is_running"`
+	MQTTToKafkaEnabled bool `json:"mqtt_to_kafka_enabled"` // Whether MQTT→Kafka flow is enabled
+	KafkaToMQTTEnabled bool `json:"kafka_to_mqtt_enabled"` // Whether Kafka→MQTT flow is enabled
+	IsRunning          bool `json:"is_running"`            // Overall bridge running status
 }

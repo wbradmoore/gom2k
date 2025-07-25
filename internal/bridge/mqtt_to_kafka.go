@@ -16,12 +16,15 @@ type MQTTToKafkaBridge struct {
 	mqttClient   *mqtt.Client
 	kafkaProducer *kafka.Producer
 	config       *types.Config
+	errorChan    chan error  // Channel to propagate errors from message handler
+	errorCount   int         // Counter for failed messages
 }
 
 // NewMQTTToKafkaBridge creates a new MQTT to Kafka bridge
 func NewMQTTToKafkaBridge(config *types.Config) *MQTTToKafkaBridge {
 	return &MQTTToKafkaBridge{
-		config: config,
+		config:    config,
+		errorChan: make(chan error, 100), // Buffered channel for async error handling
 	}
 }
 
@@ -45,6 +48,9 @@ func (b *MQTTToKafkaBridge) Start(ctx context.Context) error {
 	if err := b.mqttClient.Subscribe(); err != nil {
 		return fmt.Errorf("failed to subscribe to MQTT topics: %w", err)
 	}
+	
+	// Start error monitoring goroutine
+	go b.monitorErrors(ctx)
 	
 	log.Println("MQTT to Kafka bridge started successfully")
 	return nil
@@ -73,14 +79,14 @@ func (b *MQTTToKafkaBridge) handleMQTTMessage(mqttMsg *types.MQTTMessage) {
 	// Convert message
 	kafkaMsg, err := kafka.ConvertMQTTMessage(mqttMsg, kafkaTopic)
 	if err != nil {
-		log.Printf("Error converting MQTT message: %v", err)
+		b.reportError(fmt.Errorf("failed to convert MQTT message from topic %s: %w", mqttMsg.Topic, err))
 		return
 	}
 	
 	// Send to Kafka
 	ctx := context.Background()
 	if err := b.kafkaProducer.WriteMessage(ctx, kafkaMsg); err != nil {
-		log.Printf("Error sending message to Kafka: %v", err)
+		b.reportError(fmt.Errorf("failed to send message to Kafka topic %s: %w", kafkaTopic, err))
 		return
 	}
 	
@@ -89,21 +95,74 @@ func (b *MQTTToKafkaBridge) handleMQTTMessage(mqttMsg *types.MQTTMessage) {
 
 // Map MQTT topic to Kafka topic using configured rules
 func (b *MQTTToKafkaBridge) mapMQTTToKafkaTopic(mqttTopic string) string {
-	// Split topic into levels
-	levels := strings.Split(mqttTopic, "/")
+	// Use strings.Builder for efficient string concatenation
+	var builder strings.Builder
 	
-	// Apply max topic levels limit
+	// Pre-allocate capacity (estimate: prefix + topic + separators)
+	builder.Grow(len(b.config.Bridge.Mapping.KafkaPrefix) + len(mqttTopic) + 10)
+	
+	// Add prefix
+	builder.WriteString(b.config.Bridge.Mapping.KafkaPrefix)
+	
+	// Process topic levels directly without creating intermediate slices
 	maxLevels := b.config.Bridge.Mapping.MaxTopicLevels
-	if len(levels) > maxLevels {
-		levels = levels[:maxLevels]
+	levelCount := 0
+	startIdx := 0
+	
+	for i := 0; i < len(mqttTopic); i++ {
+		if mqttTopic[i] == '/' {
+			if levelCount < maxLevels {
+				builder.WriteByte('.')
+				builder.WriteString(mqttTopic[startIdx:i])
+				levelCount++
+			}
+			startIdx = i + 1
+		}
 	}
 	
-	// Build Kafka topic with prefix
-	prefix := b.config.Bridge.Mapping.KafkaPrefix
-	kafkaTopicParts := append([]string{prefix}, levels...)
+	// Handle the last segment (including empty segment from trailing slash)
+	if levelCount < maxLevels && startIdx <= len(mqttTopic) {
+		builder.WriteByte('.')
+		builder.WriteString(mqttTopic[startIdx:])
+	}
 	
-	// Join with dots for Kafka topic format
-	kafkaTopic := strings.Join(kafkaTopicParts, ".")
+	return builder.String()
+}
+
+// reportError sends error to error channel for monitoring
+func (b *MQTTToKafkaBridge) reportError(err error) {
+	b.errorCount++
+	log.Printf("Bridge error #%d: %v", b.errorCount, err)
 	
-	return kafkaTopic
+	// Try to send to error channel (non-blocking)
+	select {
+	case b.errorChan <- err:
+	default:
+		// Channel full, log additional warning
+		log.Printf("Warning: Error channel full, dropping error report")
+	}
+}
+
+// monitorErrors monitors the error channel and can trigger alerts or shutdown
+func (b *MQTTToKafkaBridge) monitorErrors(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case err := <-b.errorChan:
+			// For now, we just ensure errors are properly logged
+			// In production, this could trigger alerts, circuit breakers, etc.
+			log.Printf("Error monitoring: %v", err)
+			
+			// If error rate is too high, we could implement circuit breaker logic here
+			if b.errorCount > 100 {
+				log.Printf("WARNING: High error count (%d), consider investigating", b.errorCount)
+			}
+		}
+	}
+}
+
+// GetErrorCount returns the current error count for monitoring
+func (b *MQTTToKafkaBridge) GetErrorCount() int {
+	return b.errorCount
 }

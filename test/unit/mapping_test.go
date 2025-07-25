@@ -142,23 +142,41 @@ func BenchmarkTopicMapping(b *testing.B) {
 	}
 }
 
-// Helper function that mimics the actual topic mapping logic
+// Helper function that mimics the actual topic mapping logic (optimized version)
 func mapMQTTToKafkaTopic(mqttTopic, prefix string, maxLevels int) string {
 	if mqttTopic == "" {
 		return prefix
 	}
 
-	// Split topic into levels (exactly like the real implementation)
-	levels := strings.Split(mqttTopic, "/")
+	// Use strings.Builder for efficient string concatenation
+	var builder strings.Builder
 	
-	// Apply max topic levels limit
-	if len(levels) > maxLevels {
-		levels = levels[:maxLevels]
+	// Pre-allocate capacity (estimate: prefix + topic + separators)
+	builder.Grow(len(prefix) + len(mqttTopic) + 10)
+	
+	// Add prefix
+	builder.WriteString(prefix)
+	
+	// Process topic levels directly without creating intermediate slices
+	levelCount := 0
+	startIdx := 0
+	
+	for i := 0; i < len(mqttTopic); i++ {
+		if mqttTopic[i] == '/' {
+			if levelCount < maxLevels {
+				builder.WriteByte('.')
+				builder.WriteString(mqttTopic[startIdx:i])
+				levelCount++
+			}
+			startIdx = i + 1
+		}
 	}
 	
-	// Build Kafka topic with prefix
-	kafkaTopicParts := append([]string{prefix}, levels...)
+	// Handle the last segment (including empty segment from trailing slash)
+	if levelCount < maxLevels && startIdx <= len(mqttTopic) {
+		builder.WriteByte('.')
+		builder.WriteString(mqttTopic[startIdx:])
+	}
 	
-	// Join with dots for Kafka topic format
-	return strings.Join(kafkaTopicParts, ".")
+	return builder.String()
 }

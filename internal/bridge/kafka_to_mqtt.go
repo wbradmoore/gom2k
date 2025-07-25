@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
 	"gom2k/internal/kafka"
 	"gom2k/internal/mqtt"
@@ -16,12 +17,16 @@ type KafkaToMQTTBridge struct {
 	kafkaConsumer *kafka.Consumer
 	mqttClient    *mqtt.Client
 	config        *types.Config
+	wg            sync.WaitGroup // For goroutine lifecycle management
+	cancel        context.CancelFunc // To signal goroutine shutdown
+	errorChan     chan error      // Channel to receive errors from goroutine
 }
 
 // NewKafkaToMQTTBridge creates a new Kafka to MQTT bridge
 func NewKafkaToMQTTBridge(config *types.Config) *KafkaToMQTTBridge {
 	return &KafkaToMQTTBridge{
-		config: config,
+		config:    config,
+		errorChan: make(chan error, 10), // Buffered channel for async error reporting
 	}
 }
 
@@ -41,8 +46,16 @@ func (b *KafkaToMQTTBridge) Start(ctx context.Context) error {
 	
 	log.Println("Kafka to MQTT bridge started successfully")
 	
-	// Start consuming messages
-	go b.consumeMessages(ctx)
+	// Create cancellable context for goroutine management
+	goroutineCtx, cancel := context.WithCancel(ctx)
+	b.cancel = cancel
+	
+	// Start consuming messages with proper lifecycle management
+	b.wg.Add(1)
+	go func() {
+		defer b.wg.Done()
+		b.consumeMessages(goroutineCtx)
+	}()
 	
 	return nil
 }
@@ -50,6 +63,15 @@ func (b *KafkaToMQTTBridge) Start(ctx context.Context) error {
 // Stop gracefully shuts down the bridge
 func (b *KafkaToMQTTBridge) Stop() error {
 	log.Println("Stopping Kafka to MQTT bridge")
+	
+	// Signal goroutine to stop
+	if b.cancel != nil {
+		b.cancel()
+	}
+	
+	// Wait for goroutine to finish
+	b.wg.Wait()
+	log.Println("Kafka consumer goroutine stopped")
 	
 	if b.kafkaConsumer != nil {
 		if err := b.kafkaConsumer.Close(); err != nil {
@@ -60,6 +82,9 @@ func (b *KafkaToMQTTBridge) Stop() error {
 	if b.mqttClient != nil {
 		b.mqttClient.Disconnect()
 	}
+	
+	// Close error channel
+	close(b.errorChan)
 	
 	return nil
 }
@@ -77,13 +102,13 @@ func (b *KafkaToMQTTBridge) consumeMessages(ctx context.Context) {
 			// Read message from Kafka
 			kafkaMsg, err := b.kafkaConsumer.ReadMessage(ctx)
 			if err != nil {
-				log.Printf("Error reading from Kafka: %v", err)
+				b.reportError(fmt.Errorf("error reading from Kafka: %w", err))
 				continue
 			}
 			
 			// Convert and forward to MQTT
 			if err := b.handleKafkaMessage(kafkaMsg); err != nil {
-				log.Printf("Error handling Kafka message: %v", err)
+				b.reportError(fmt.Errorf("error handling Kafka message: %w", err))
 				continue
 			}
 		}
@@ -133,5 +158,23 @@ func (b *KafkaToMQTTBridge) shouldSkipTopic(mqttTopic string) bool {
 	}
 	
 	return false
+}
+
+// reportError sends error to error channel for monitoring
+func (b *KafkaToMQTTBridge) reportError(err error) {
+	log.Printf("Kafka to MQTT bridge error: %v", err)
+	
+	// Try to send to error channel (non-blocking)
+	select {
+	case b.errorChan <- err:
+	default:
+		// Channel full or closed, log additional warning
+		log.Printf("Warning: Error channel unavailable, dropping error report")
+	}
+}
+
+// GetErrorChan returns the error channel for external monitoring
+func (b *KafkaToMQTTBridge) GetErrorChan() <-chan error {
+	return b.errorChan
 }
 

@@ -1,50 +1,64 @@
+// Package config provides configuration loading and validation functionality for the bridge system.
+// It supports YAML configuration files with environment variable substitution, default value
+// application, and validation of required fields. The package includes special handling for
+// viper boolean unmarshaling issues and provides separate loading modes for production and testing.
 package config
 
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gom2k/pkg/types"
+	"gom2k/pkg/validation"
 
 	"github.com/spf13/viper"
 )
 
-// LoadFromFile reads configuration from a single YAML file
+// LoadFromFile reads configuration from a YAML file with full validation and default application.
+// It loads MQTT, Kafka, and bridge configuration sections, applies sensible defaults for
+// missing values, and validates that all required fields are present and at least one
+// bridge direction is enabled.
 func LoadFromFile(configPath string) (*types.Config, error) {
 	// Default to config.yaml if no path specified
 	if configPath == "" {
 		configPath = "config.yaml"
 	}
 
-	v := viper.New()
-	v.SetConfigFile(configPath)
+	// Validate config path before loading
+	if err := validation.ValidateConfigPath(configPath); err != nil {
+		return nil, fmt.Errorf("invalid config path: %w", err)
+	}
+
+	viperInstance := viper.New()
+	viperInstance.SetConfigFile(configPath)
 	
 	// Read the configuration file
-	if err := v.ReadInConfig(); err != nil {
+	if err := viperInstance.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("failed to read config file '%s': %w", configPath, err)
 	}
 
 	// Load configuration into struct
 	config := &types.Config{}
 	
-	if err := v.UnmarshalKey("mqtt", &config.MQTT); err != nil {
+	if err := viperInstance.UnmarshalKey("mqtt", &config.MQTT); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal MQTT config: %w", err)
 	}
 	
-	if err := v.UnmarshalKey("kafka", &config.Kafka); err != nil {
+	if err := viperInstance.UnmarshalKey("kafka", &config.Kafka); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal Kafka config: %w", err)
 	}
 	
-	if err := v.UnmarshalKey("bridge", &config.Bridge); err != nil {
+	if err := viperInstance.UnmarshalKey("bridge", &config.Bridge); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal bridge config: %w", err)
 	}
 	
 	// Workaround for viper boolean unmarshaling issues
-	if v.IsSet("bridge.features.mqtt_to_kafka") {
-		config.Bridge.Features.MQTTToKafka = v.GetBool("bridge.features.mqtt_to_kafka")
+	if viperInstance.IsSet("bridge.features.mqtt_to_kafka") {
+		config.Bridge.Features.MQTTToKafka = viperInstance.GetBool("bridge.features.mqtt_to_kafka")
 	}
-	if v.IsSet("bridge.features.kafka_to_mqtt") {
-		config.Bridge.Features.KafkaToMQTT = v.GetBool("bridge.features.kafka_to_mqtt")
+	if viperInstance.IsSet("bridge.features.kafka_to_mqtt") {
+		config.Bridge.Features.KafkaToMQTT = viperInstance.GetBool("bridge.features.kafka_to_mqtt")
 	}
 	
 	// Apply defaults and validate
@@ -64,35 +78,54 @@ func LoadForTesting(configPath string) (*types.Config, error) {
 		configPath = "config.yaml"
 	}
 
-	v := viper.New()
-	v.SetConfigFile(configPath)
+	// Validate config path before loading
+	if err := validation.ValidateConfigPath(configPath); err != nil {
+		return nil, fmt.Errorf("invalid config path: %w", err)
+	}
+
+	testViperInstance := viper.New()
+	testViperInstance.SetConfigFile(configPath)
 	
 	// Read the configuration file
-	if err := v.ReadInConfig(); err != nil {
+	if err := testViperInstance.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("failed to read config file '%s': %w", configPath, err)
 	}
 
 	// Load configuration into struct
 	config := &types.Config{}
 	
-	if err := v.UnmarshalKey("mqtt", &config.MQTT); err != nil {
+	if err := testViperInstance.UnmarshalKey("mqtt", &config.MQTT); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal MQTT config: %w", err)
 	}
 	
-	if err := v.UnmarshalKey("kafka", &config.Kafka); err != nil {
+	if err := testViperInstance.UnmarshalKey("kafka", &config.Kafka); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal Kafka config: %w", err)
 	}
 	
-	if err := v.UnmarshalKey("bridge", &config.Bridge); err != nil {
+	if err := testViperInstance.UnmarshalKey("bridge", &config.Bridge); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal bridge config: %w", err)
 	}
 	
 	// Workaround for viper boolean unmarshaling issues
-	if v.IsSet("bridge.features.mqtt_to_kafka") {
-		config.Bridge.Features.MQTTToKafka = v.GetBool("bridge.features.mqtt_to_kafka")
+	if testViperInstance.IsSet("bridge.features.mqtt_to_kafka") {
+		config.Bridge.Features.MQTTToKafka = testViperInstance.GetBool("bridge.features.mqtt_to_kafka")
 	}
-	if v.IsSet("bridge.features.kafka_to_mqtt") {
-		config.Bridge.Features.KafkaToMQTT = v.GetBool("bridge.features.kafka_to_mqtt")
+	if testViperInstance.IsSet("bridge.features.kafka_to_mqtt") {
+		config.Bridge.Features.KafkaToMQTT = testViperInstance.GetBool("bridge.features.kafka_to_mqtt")
+	}
+	
+	// Additional workarounds for nested structures that may not unmarshal properly
+	if testViperInstance.IsSet("kafka.consumer.group_id") {
+		config.Kafka.Consumer.GroupID = testViperInstance.GetString("kafka.consumer.group_id")
+	}
+	if testViperInstance.IsSet("bridge.kafka.auto_create_topics") {
+		config.Bridge.Kafka.AutoCreateTopics = testViperInstance.GetBool("bridge.kafka.auto_create_topics")
+	}
+	if testViperInstance.IsSet("bridge.kafka.default_partitions") {
+		config.Bridge.Kafka.DefaultPartitions = testViperInstance.GetInt("bridge.kafka.default_partitions")
+	}
+	if testViperInstance.IsSet("bridge.kafka.replication_factor") {
+		config.Bridge.Kafka.ReplicationFactor = testViperInstance.GetInt("bridge.kafka.replication_factor")
 	}
 	
 	// Apply defaults but skip validation for testing
@@ -131,9 +164,7 @@ func applyDefaults(config *types.Config) {
 	if config.Bridge.Kafka.ReplicationFactor == 0 {
 		config.Bridge.Kafka.ReplicationFactor = 1
 	}
-	if config.MQTT.Client.QoS == 0 {
-		config.MQTT.Client.QoS = 0 // Explicit default
-	}
+	// QoS defaults to 0 (no explicit setting needed)
 }
 
 // validate checks configuration for required fields and logical consistency
@@ -144,11 +175,75 @@ func validate(config *types.Config) error {
 	if config.MQTT.Broker.Port == 0 {
 		return fmt.Errorf("MQTT broker port is required")
 	}
+	
+	// Validate MQTT broker address
+	if err := validation.ValidateMQTTBroker(config.MQTT.Broker.Host, config.MQTT.Broker.Port); err != nil {
+		return fmt.Errorf("invalid MQTT broker configuration: %w", err)
+	}
+	
 	if len(config.Kafka.Brokers) == 0 {
 		return fmt.Errorf("at least one Kafka broker is required")
 	}
+	
+	// Validate each Kafka broker address
+	for _, broker := range config.Kafka.Brokers {
+		if err := validation.ValidateBrokerAddress(broker); err != nil {
+			return fmt.Errorf("invalid Kafka broker address %s: %w", broker, err)
+		}
+	}
+	
+	// Validate SSL certificate paths if SSL is enabled
+	if config.Kafka.Security.Protocol == "SSL" {
+		// Define allowed directories for SSL certificates
+		allowedDirs := []string{"/etc/ssl", "/opt/kafka/ssl", "./ssl", "./certs", "./config/ssl"}
+		
+		// Add environment-specific allowed directories
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			allowedDirs = append(allowedDirs, fmt.Sprintf("%s/.kafka/ssl", homeDir))
+			allowedDirs = append(allowedDirs, fmt.Sprintf("%s/.ssl", homeDir))
+		}
+		
+		if config.Kafka.Security.SSL.Keystore.Location != "" {
+			if err := validation.ValidateSSLFilePath(config.Kafka.Security.SSL.Keystore.Location, allowedDirs); err != nil {
+				return fmt.Errorf("invalid keystore path: %w", err)
+			}
+		}
+		
+		if config.Kafka.Security.SSL.Truststore.Location != "" {
+			if err := validation.ValidateSSLFilePath(config.Kafka.Security.SSL.Truststore.Location, allowedDirs); err != nil {
+				return fmt.Errorf("invalid truststore path: %w", err)
+			}
+		}
+	}
+	
+	// Sanitize and validate authentication credentials
+	if config.MQTT.Auth.Username != "" {
+		config.MQTT.Auth.Username = validation.SanitizeUsername(config.MQTT.Auth.Username)
+	}
+	if config.MQTT.Auth.Password != "" {
+		config.MQTT.Auth.Password = validation.SanitizePassword(config.MQTT.Auth.Password)
+	}
+	
+	// Sanitize client ID
+	if config.MQTT.Client.ClientID != "" {
+		// Extract the base client ID (before any {random} template)
+		baseClientID := config.MQTT.Client.ClientID
+		if idx := strings.Index(baseClientID, "{"); idx > 0 {
+			baseClientID = baseClientID[:idx]
+		}
+		
+		// Sanitize the base and reconstruct
+		sanitizedBase := validation.SanitizeClientID(baseClientID)
+		if strings.Contains(config.MQTT.Client.ClientID, "{random}") {
+			config.MQTT.Client.ClientID = sanitizedBase + "-{random}"
+		} else {
+			config.MQTT.Client.ClientID = sanitizedBase
+		}
+	}
+	
 	if !config.Bridge.Features.MQTTToKafka && !config.Bridge.Features.KafkaToMQTT {
 		return fmt.Errorf("at least one bridge direction must be enabled")
 	}
+	
 	return nil
 }

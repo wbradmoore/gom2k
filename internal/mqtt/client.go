@@ -1,3 +1,7 @@
+// Package mqtt provides MQTT client functionality with support for TLS connections,
+// OS certificate stores, client ID templating with random suffixes, and configurable
+// QoS levels. It handles connection management, message publishing/subscribing, and
+// integrates with the bridge system for bidirectional message flow.
 package mqtt
 
 import (
@@ -12,13 +16,18 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
+// Client provides MQTT connectivity with support for TLS, authentication, and message handling.
+// It wraps the Eclipse Paho MQTT client with additional features like client ID templating,
+// OS certificate store integration, and structured message handling for bridge operations.
 type Client struct {
-	config      *types.MQTTConfig
-	client      mqtt.Client
-	messageHandler func(*types.MQTTMessage)
+	config         *types.MQTTConfig                // MQTT broker and connection configuration
+	client         mqtt.Client                      // Underlying Paho MQTT client
+	messageHandler func(*types.MQTTMessage)         // Callback function for received messages
 }
 
-// NewClient creates a new MQTT client
+// NewClient creates a new MQTT client with the provided configuration.
+// The client supports TLS connections, OS certificate stores, and client ID templating
+// with random suffixes to prevent ID conflicts in multi-instance deployments.
 func NewClient(config *types.MQTTConfig) *Client {
 	return &Client{
 		config: config,

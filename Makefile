@@ -32,35 +32,35 @@ build:
 # Run all tests
 test:
 	@echo "Running all tests..."
-	go test ./test/... -v
+	go test ./test/... -v -count=1
 
 # Run unit tests only (fast, no external dependencies)
 test-unit:
 	@echo "Running unit tests..."
-	go test ./test/unit/... -v
+	go test ./test/unit/... -v -count=1
 
 # Run integration tests (requires external services)
 test-integration:
 	@echo "Running integration tests..."
 	@echo "Note: This requires running MQTT and Kafka services"
-	go test ./test/integration/... -v -tags=integration
+	go test ./test/integration/... -v -count=1 -tags=integration
 
 # Run tests with coverage
 test-coverage:
 	@echo "Running tests with coverage..."
-	go test ./test/... -v -coverprofile=coverage.out
+	go test ./test/... -v -count=1 -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
 # Run tests with race detection
 test-race:
 	@echo "Running tests with race detection..."
-	go test ./test/... -v -race
+	go test ./test/... -v -count=1 -race
 
 # Run benchmarks
 benchmark:
 	@echo "Running benchmarks..."
-	go test ./test/unit/... -bench=. -benchmem
+	go test ./test/unit/... -bench=. -benchmem -count=1
 
 # Lint the code
 lint:
@@ -125,7 +125,7 @@ docker-down:
 docker-test: docker-up build
 	@echo "Running complete test suite with Docker..."
 	@echo "1. Running unit tests..."
-	@go test ./test/unit/... -v
+	@go test ./test/unit/... -v -count=1
 	@echo ""
 	@echo "2. Testing MQTT connectivity..."
 	@CONFIGS_DIR="./test/plaintext" timeout 8s ./gom2k --test-mqtt || echo "MQTT test completed"

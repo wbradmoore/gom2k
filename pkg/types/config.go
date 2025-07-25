@@ -1,15 +1,21 @@
+// Package types defines the core data structures used throughout the GOM2K bridge system.
+// This includes configuration structures for MQTT, Kafka, and bridge settings, as well as
+// message types for data exchange between different components of the system.
 package types
 
 import "time"
 
-// Config represents the complete bridge configuration
+// Config represents the complete bridge configuration containing all settings
+// for MQTT connectivity, Kafka connectivity, and bridge operation parameters.
+// This is the root configuration structure loaded from YAML files.
 type Config struct {
-	MQTT   MQTTConfig   `yaml:"mqtt"`
-	Kafka  KafkaConfig  `yaml:"kafka"`
-	Bridge BridgeConfig `yaml:"bridge"`
+	MQTT   MQTTConfig   `yaml:"mqtt"`   // MQTT broker connection and authentication settings
+	Kafka  KafkaConfig  `yaml:"kafka"`  // Kafka cluster connection and security settings  
+	Bridge BridgeConfig `yaml:"bridge"` // Bridge operation and mapping configuration
 }
 
-// MQTTConfig holds MQTT connection settings
+// MQTTConfig holds MQTT broker connection settings including authentication,
+// TLS configuration, client parameters, and topic subscription patterns.
 type MQTTConfig struct {
 	Broker struct {
 		Host       string `yaml:"host"`

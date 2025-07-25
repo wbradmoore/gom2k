@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"software.sslmate.com/src/go-pkcs12"
+	"strings"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -17,38 +19,27 @@ import (
 
 // Consumer handles Kafka message consumption with SSL support
 type Consumer struct {
-	reader *kafka.Reader
-	config *types.KafkaConfig
-	topics []string
+	reader       *kafka.Reader
+	config       *types.KafkaConfig
+	bridgeConfig *types.BridgeConfig
+	topics       []string
 }
 
 // NewConsumer creates a new Kafka consumer with SSL configuration
 func NewConsumer(kafkaConfig *types.KafkaConfig, bridgeConfig *types.BridgeConfig) *Consumer {
 	return &Consumer{
-		config: kafkaConfig,
-		topics: generateKafkaTopics(bridgeConfig),
+		config:       kafkaConfig,
+		bridgeConfig: bridgeConfig,
+		topics:       generateKafkaTopics(bridgeConfig),
 	}
 }
 
 // generateKafkaTopics creates list of Kafka topics to consume from based on prefix
 func generateKafkaTopics(bridgeConfig *types.BridgeConfig) []string {
-	// For now, we'll consume from topics matching our prefix pattern
-	// In a production system, you might want to discover topics dynamically
+	// Return placeholder topics - actual discovery happens in Connect()
+	// This is needed for initialization but will be replaced by dynamic discovery
 	prefix := bridgeConfig.Mapping.KafkaPrefix
-	
-	// Common MQTT topic patterns we expect to see in Kafka
-	patterns := []string{
-		fmt.Sprintf("%s.homeassistant", prefix),
-		fmt.Sprintf("%s.zigbee2mqtt", prefix),
-		fmt.Sprintf("%s.sensor", prefix),
-		fmt.Sprintf("%s.device", prefix),
-		fmt.Sprintf("%s.switch", prefix),
-		fmt.Sprintf("%s.light", prefix),
-		fmt.Sprintf("%s.temp", prefix),
-		fmt.Sprintf("%s.humidity", prefix),
-	}
-	
-	return patterns
+	return []string{fmt.Sprintf("%s.placeholder", prefix)}
 }
 
 // Connect establishes connection to Kafka with SSL
@@ -66,10 +57,33 @@ func (c *Consumer) Connect() error {
 	// For multiple topics, we'll need to create multiple readers or use a different approach
 	// For now, let's start with consuming from a specific topic for testing
 	
+	// Discover existing Kafka topics dynamically
+	discoveredTopics, err := c.discoverKafkaTopics()
+	if err != nil {
+		return fmt.Errorf("failed to discover Kafka topics: %w", err)
+	}
+	
+	if len(discoveredTopics) == 0 {
+		prefix := c.getBridgePrefix()
+		log.Printf("Warning: No existing Kafka topics found with prefix '%s'", prefix)
+		log.Printf("This is normal for a new deployment. Topics will be created when MQTT messages arrive.")
+		// Create a default topic to start consuming from
+		defaultTopic := fmt.Sprintf("%s.sensor", prefix)
+		discoveredTopics = []string{defaultTopic}
+		log.Printf("Using default topic: %s", defaultTopic)
+	}
+	
+	// Use the first discovered topic for single-topic reader
+	// TODO: Implement proper multi-topic consumption
+	topicToConsume := discoveredTopics[0]
+	c.topics = discoveredTopics // Update our topic list
+	
+	log.Printf("Discovered %d Kafka topics with prefix, consuming from: %s", len(discoveredTopics), topicToConsume)
+	
 	c.reader = kafka.NewReader(kafka.ReaderConfig{
 		Brokers: c.config.Brokers,
 		GroupID: c.config.Consumer.GroupID,
-		Topic:   "gom2k.homeassistant.sensor.temp", // Start with a specific topic for testing
+		Topic:   topicToConsume,
 		
 		// SSL configuration
 		Dialer: &kafka.Dialer{
@@ -103,7 +117,7 @@ func (c *Consumer) loadTLSConfig() (*tls.Config, error) {
 		return nil, fmt.Errorf("failed to read keystore: %w", err)
 	}
 
-	privateKey, cert, err := pkcs12.Decode(keystoreData, ssl.Keystore.KeyPassword)
+	privateKey, cert, err := pkcs12.Decode(keystoreData, ssl.Keystore.Password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode keystore: %w", err)
 	}
@@ -191,11 +205,11 @@ func ConvertKafkaMessage(kafkaMsg *types.KafkaMessage) (*types.MQTTMessage, erro
 	// Extract QoS (handle both int and float64 from JSON)
 	var qos byte = 0
 	if qosVal, ok := payload["qos"]; ok {
-		switch v := qosVal.(type) {
+		switch qosValue := qosVal.(type) {
 		case float64:
-			qos = byte(v)
+			qos = byte(qosValue)
 		case int:
-			qos = byte(v)
+			qos = byte(qosValue)
 		}
 	}
 
@@ -223,6 +237,111 @@ func ConvertKafkaMessage(kafkaMsg *types.KafkaMessage) (*types.MQTTMessage, erro
 	}
 
 	return mqttMsg, nil
+}
+
+// discoverKafkaTopics dynamically discovers existing Kafka topics matching our prefix
+func (c *Consumer) discoverKafkaTopics() ([]string, error) {
+	// Create connection for topic discovery
+	conn, err := c.createKafkaConn()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Kafka connection for discovery: %w", err)
+	}
+	defer conn.Close()
+	
+	// Get all topics from Kafka cluster
+	partitions, err := conn.ReadPartitions()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Kafka partitions: %w", err)
+	}
+	
+	// Extract unique topic names and filter by our prefix
+	topicSet := make(map[string]bool)
+	prefix := c.getBridgePrefix()
+	
+	for _, partition := range partitions {
+		topicName := partition.Topic
+		// Only include topics that start with our bridge prefix
+		if strings.HasPrefix(topicName, prefix) {
+			topicSet[topicName] = true
+		}
+	}
+	
+	// Convert set to slice
+	var discoveredTopics []string
+	for topic := range topicSet {
+		discoveredTopics = append(discoveredTopics, topic)
+	}
+	
+	log.Printf("Topic discovery: found %d topics with prefix '%s'", len(discoveredTopics), prefix)
+	for _, topic := range discoveredTopics {
+		log.Printf("  - %s", topic)
+	}
+	
+	return discoveredTopics, nil
+}
+
+// createKafkaConn creates a connection to Kafka for admin operations
+func (c *Consumer) createKafkaConn() (*kafka.Conn, error) {
+	var dialer *kafka.Dialer
+	
+	// Configure SSL/TLS if specified
+	if strings.ToUpper(c.config.Security.Protocol) == "SSL" {
+		tlsConfig, err := c.loadTLSConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create TLS config: %w", err)
+		}
+		
+		dialer = &kafka.Dialer{
+			Timeout:   10 * time.Second,
+			DualStack: true,
+			TLS:       tlsConfig,
+		}
+	} else {
+		dialer = &kafka.Dialer{
+			Timeout:   10 * time.Second,
+			DualStack: true,
+		}
+	}
+	
+	// Connect to the first broker
+	if len(c.config.Brokers) == 0 {
+		return nil, fmt.Errorf("no Kafka brokers configured")
+	}
+	
+	broker := c.config.Brokers[0]
+	host, port, err := net.SplitHostPort(broker)
+	if err != nil {
+		return nil, fmt.Errorf("invalid broker address %s: %w", broker, err)
+	}
+	
+	conn, err := dialer.DialContext(context.Background(), "tcp", net.JoinHostPort(host, port))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Kafka broker %s: %w", broker, err)
+	}
+	
+	return conn, nil
+}
+
+// getBridgePrefix returns the Kafka topic prefix for this bridge instance
+func (c *Consumer) getBridgePrefix() string {
+	// Use the bridge config prefix directly
+	if c.bridgeConfig != nil && c.bridgeConfig.Mapping.KafkaPrefix != "" {
+		return c.bridgeConfig.Mapping.KafkaPrefix
+	}
+	
+	// Fallback: derive from consumer group ID if bridge config unavailable
+	groupID := c.config.Consumer.GroupID
+	if groupID == "" {
+		return "gom2k" // Default fallback
+	}
+	
+	// Extract prefix from group ID (e.g., "gom2k-1" -> "gom2k")
+	parts := strings.Split(groupID, "-")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	
+	return "gom2k" // Default fallback
 }
 
 // createCertPoolFromCerts creates a certificate pool from x509 certificates
