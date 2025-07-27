@@ -126,7 +126,18 @@ func (b *MQTTToKafkaBridge) mapMQTTToKafkaTopic(mqttTopic string) string {
 		builder.WriteString(mqttTopic[startIdx:])
 	}
 	
-	return builder.String()
+	kafkaTopic := builder.String()
+	
+	// Ensure Kafka topic doesn't exceed maximum length (249 chars)
+	if len(kafkaTopic) > 249 {
+		kafkaTopic = kafkaTopic[:249]
+		// Remove trailing dot if present
+		if kafkaTopic[len(kafkaTopic)-1] == '.' {
+			kafkaTopic = kafkaTopic[:len(kafkaTopic)-1]
+		}
+	}
+	
+	return kafkaTopic
 }
 
 // reportError sends error to error channel for monitoring

@@ -64,14 +64,14 @@ func LoadFromFile(configPath string) (*types.Config, error) {
 	// Apply defaults and validate
 	applyDefaults(config)
 	
-	if err := validate(config); err != nil {
+	if err := validate(config, false); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 	
 	return config, nil
 }
 
-// LoadForTesting loads config with minimal validation for connectivity tests
+// LoadForTesting loads config with test-friendly validation for connectivity tests
 func LoadForTesting(configPath string) (*types.Config, error) {
 	// Default to config.yaml if no path specified
 	if configPath == "" {
@@ -128,10 +128,19 @@ func LoadForTesting(configPath string) (*types.Config, error) {
 		config.Bridge.Kafka.ReplicationFactor = testViperInstance.GetInt("bridge.kafka.replication_factor")
 	}
 	
-	// Apply defaults but skip validation for testing
+	// Apply defaults and validate in test mode (skips SSL file validation)
 	applyDefaults(config)
 	
+	if err := validate(config, true); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
+	
 	return config, nil
+}
+
+// ValidateConfig exposes the validation function for testing
+func ValidateConfig(config *types.Config, testMode bool) error {
+	return validate(config, testMode)
 }
 
 // GetConfigPath returns the configuration file path from environment or default
@@ -168,7 +177,7 @@ func applyDefaults(config *types.Config) {
 }
 
 // validate checks configuration for required fields and logical consistency
-func validate(config *types.Config) error {
+func validate(config *types.Config, testMode bool) error {
 	if config.MQTT.Broker.Host == "" {
 		return fmt.Errorf("MQTT broker host is required")
 	}
@@ -192,8 +201,8 @@ func validate(config *types.Config) error {
 		}
 	}
 	
-	// Validate SSL certificate paths if SSL is enabled
-	if config.Kafka.Security.Protocol == "SSL" {
+	// Validate SSL certificate paths if SSL is enabled (skip in test mode)
+	if config.Kafka.Security.Protocol == "SSL" && !testMode {
 		// Define allowed directories for SSL certificates
 		allowedDirs := []string{"/etc/ssl", "/opt/kafka/ssl", "./ssl", "./certs", "./config/ssl"}
 		

@@ -186,14 +186,14 @@ func ConvertKafkaMessage(kafkaMsg *types.KafkaMessage) (*types.MQTTMessage, erro
 		return nil, fmt.Errorf("failed to unmarshal Kafka message: %w", err)
 	}
 
-	// Extract original MQTT topic from Kafka message key
-	// The key should be the original MQTT topic
-	mqttTopic := kafkaMsg.Key
-	if mqttTopic == "" {
-		// Fallback to extracting from JSON payload
-		if topic, ok := payload["mqtt_topic"].(string); ok {
-			mqttTopic = topic
-		}
+	// Extract original MQTT topic from JSON payload (source of truth)
+	// This ensures perfect reconstruction regardless of Kafka topic mapping strategy
+	mqttTopic := ""
+	if topic, ok := payload["mqtt_topic"].(string); ok {
+		mqttTopic = topic
+	} else {
+		// This should never happen if the message was created by our bridge
+		return nil, fmt.Errorf("missing mqtt_topic in Kafka message payload")
 	}
 
 	// Extract payload

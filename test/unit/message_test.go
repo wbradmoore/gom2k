@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"gom2k/internal/kafka"
 	"gom2k/pkg/types"
 )
 
@@ -89,7 +90,7 @@ func TestKafkaToMQTTMessageConversion(t *testing.T) {
 	}
 	
 	// Convert back to MQTT message
-	mqttMsg, err := convertKafkaMessage(kafkaMsg)
+	mqttMsg, err := kafka.ConvertKafkaMessage(kafkaMsg)
 	if err != nil {
 		t.Fatalf("Failed to convert Kafka message: %v", err)
 	}
@@ -131,7 +132,7 @@ func TestMessageConversionRoundTrip(t *testing.T) {
 	}
 	
 	// Convert Kafka -> MQTT
-	restored, err := convertKafkaMessage(kafkaMsg)
+	restored, err := kafka.ConvertKafkaMessage(kafkaMsg)
 	if err != nil {
 		t.Fatalf("Kafka->MQTT conversion failed: %v", err)
 	}
@@ -198,50 +199,88 @@ func convertMQTTMessage(mqttMsg *types.MQTTMessage, kafkaTopic string) (*types.K
 	}, nil
 }
 
-func convertKafkaMessage(kafkaMsg *types.KafkaMessage) (*types.MQTTMessage, error) {
-	// Parse JSON payload
-	var payload map[string]interface{}
-	if err := json.Unmarshal(kafkaMsg.Value, &payload); err != nil {
-		return nil, err
+// TestKafkaToMQTTTopicReconstruction tests that MQTT topics are always reconstructed from JSON payload
+func TestKafkaToMQTTTopicReconstruction(t *testing.T) {
+	tests := []struct {
+		name          string
+		originalTopic string
+		kafkaTopic    string
+		kafkaKey      string
+		expectError   bool
+	}{
+		{
+			name:          "Standard topic reconstruction",
+			originalTopic: "sensors/room1/temperature",
+			kafkaTopic:    "gom2k.sensors.room1",
+			kafkaKey:      "sensors/room1/temperature",
+			expectError:   false,
+		},
+		{
+			name:          "Very long topic that would exceed Kafka limits",
+			originalTopic: "azeroth/eastern-kingdoms/stormwind/elwynn-forest/deadmines/instance-42/van-cleef-hideout/defias-brotherhood/edwin-vancleef/loot-table/rare-drops/cruel-barb/stats/damage/min-max/enchantments/current",
+			kafkaTopic:    "gom2k.azeroth.eastern-kingdoms.stormwind", // Truncated
+			kafkaKey:      "wrong-key", // Deliberately wrong to ensure JSON is used
+			expectError:   false,
+		},
+		{
+			name:          "Topic with special characters",
+			originalTopic: "home/kitchen/sensor#1/temp-reading",
+			kafkaTopic:    "gom2k.home.kitchen",
+			kafkaKey:      "", // Empty key to verify JSON is used
+			expectError:   false,
+		},
+		{
+			name:          "Missing mqtt_topic in payload",
+			originalTopic: "",
+			kafkaTopic:    "gom2k.test",
+			kafkaKey:      "test/topic",
+			expectError:   true,
+		},
 	}
 	
-	// Extract MQTT topic from key (primary) or payload (fallback)
-	mqttTopic := kafkaMsg.Key
-	if topicFromPayload, ok := payload["mqtt_topic"].(string); ok && topicFromPayload != "" {
-		mqttTopic = topicFromPayload
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create payload with or without mqtt_topic based on test case
+			payload := map[string]interface{}{
+				"payload":   "test-data",
+				"timestamp": time.Now().Format(time.RFC3339),
+				"qos":       0,
+				"retained":  false,
+			}
+			
+			if tt.originalTopic != "" {
+				payload["mqtt_topic"] = tt.originalTopic
+			}
+			
+			jsonPayload, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatalf("Failed to marshal test payload: %v", err)
+			}
+			
+			kafkaMsg := &types.KafkaMessage{
+				Key:   tt.kafkaKey,
+				Value: jsonPayload,
+				Topic: tt.kafkaTopic,
+			}
+			
+			// Convert back to MQTT message
+			mqttMsg, err := kafka.ConvertKafkaMessage(kafkaMsg)
+			
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
+			}
+			
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			
+			// Verify topic is reconstructed from JSON payload, not from key
+			if mqttMsg.Topic != tt.originalTopic {
+				t.Errorf("Expected topic %q, got %q", tt.originalTopic, mqttMsg.Topic)
+			}
+		})
 	}
-	
-	// Extract payload
-	payloadStr, ok := payload["payload"].(string)
-	if !ok {
-		payloadStr = ""
-	}
-	
-	// Extract QoS (default to 0)
-	qos := byte(0)
-	if qosFloat, ok := payload["qos"].(float64); ok {
-		qos = byte(qosFloat)
-	}
-	
-	// Extract retained flag (default to false)
-	retained := false
-	if retainedBool, ok := payload["retained"].(bool); ok {
-		retained = retainedBool
-	}
-	
-	// Parse timestamp (default to now)
-	timestamp := time.Now()
-	if timestampStr, ok := payload["timestamp"].(string); ok {
-		if parsedTime, err := time.Parse(time.RFC3339, timestampStr); err == nil {
-			timestamp = parsedTime
-		}
-	}
-	
-	return &types.MQTTMessage{
-		Topic:     mqttTopic,
-		Payload:   []byte(payloadStr),
-		QoS:       qos,
-		Retained:  retained,
-		Timestamp: timestamp,
-	}, nil
 }

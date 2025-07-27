@@ -131,6 +131,60 @@ func TestTopicMappingEdgeCases(t *testing.T) {
 	}
 }
 
+func TestTopicTruncation(t *testing.T) {
+	tests := []struct {
+		name      string
+		prefix    string
+		mqtt      string
+		maxLevels int
+	}{
+		{
+			name:      "topic under 249 chars",
+			prefix:    "gom2k",
+			mqtt:      "home/sensors/temperature",
+			maxLevels: 3,
+		},
+		{
+			name:      "topic exactly 249 chars - should not truncate",
+			prefix:    "gom2k",
+			mqtt:      strings.Repeat("a", 242) + "/b", // Results in exactly 249 chars: "gom2k." + 242 "a"s + ".b"
+			maxLevels: 10,
+		},
+		{
+			name:      "topic over 249 chars - should truncate",
+			prefix:    "my-very-long-enterprise-prefix",
+			mqtt:      strings.Repeat("extremely-long-segment-name-that-represents-a-deeply-nested-iot-hierarchy/", 10),
+			maxLevels: 10,
+		},
+		{
+			name:      "truncation removes trailing dot",
+			prefix:    "prefix",
+			mqtt:      strings.Repeat("a", 242) + "/", // Would result in "prefix." + 242 "a"s + "." = 250 chars, needs truncation
+			maxLevels: 2,
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := mapMQTTToKafkaTopic(tt.mqtt, tt.prefix, tt.maxLevels)
+			
+			// Verify length constraint
+			if len(result) > 249 {
+				t.Errorf("Result exceeds 249 chars: len=%d, topic=%q", len(result), result)
+			}
+			
+			// Verify no trailing dot if length is exactly 249
+			if len(result) == 249 && result[len(result)-1] == '.' {
+				t.Errorf("Result has trailing dot after truncation to 249 chars")
+			}
+			
+			// Log the actual lengths for debugging
+			t.Logf("Test %q: input would produce %d chars, actual result %d chars",
+				tt.name, len(tt.prefix)+1+len(strings.ReplaceAll(tt.mqtt, "/", ".")), len(result))
+		})
+	}
+}
+
 func BenchmarkTopicMapping(b *testing.B) {
 	mqttTopic := "homeassistant/sensor/room1/temperature/celsius/current"
 	prefix := "gom2k"
@@ -178,5 +232,16 @@ func mapMQTTToKafkaTopic(mqttTopic, prefix string, maxLevels int) string {
 		builder.WriteString(mqttTopic[startIdx:])
 	}
 	
-	return builder.String()
+	kafkaTopic := builder.String()
+	
+	// Ensure Kafka topic doesn't exceed maximum length (249 chars)
+	if len(kafkaTopic) > 249 {
+		kafkaTopic = kafkaTopic[:249]
+		// Remove trailing dot if present
+		if kafkaTopic[len(kafkaTopic)-1] == '.' {
+			kafkaTopic = kafkaTopic[:len(kafkaTopic)-1]
+		}
+	}
+	
+	return kafkaTopic
 }

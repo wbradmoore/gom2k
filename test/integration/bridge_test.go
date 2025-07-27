@@ -107,3 +107,42 @@ func TestBidirectionalBridge(t *testing.T) {
 
 	t.Log("Successfully started bidirectional bridge")
 }
+
+// getBridgeTestConfig returns a test configuration for bridge settings
+func getBridgeTestConfig() *types.BridgeConfig {
+	return &types.BridgeConfig{
+		Mapping: struct {
+			KafkaPrefix    string `yaml:"kafka_prefix"`
+			MaxTopicLevels int    `yaml:"max_topic_levels"`
+		}{
+			KafkaPrefix:    "gom2k-test",
+			MaxTopicLevels: 3,
+		},
+		Features: struct {
+			MQTTToKafka bool `yaml:"mqtt_to_kafka"`
+			KafkaToMQTT bool `yaml:"kafka_to_mqtt"`
+		}{
+			MQTTToKafka: true,
+			KafkaToMQTT: true,
+		},
+		Kafka: struct {
+			AutoCreateTopics  bool `yaml:"auto_create_topics"`
+			DefaultPartitions int  `yaml:"default_partitions"`
+			ReplicationFactor int  `yaml:"replication_factor"`
+		}{
+			AutoCreateTopics:  true,
+			DefaultPartitions: 1,
+			ReplicationFactor: 1,
+		},
+		Retry: struct {
+			ConnectionTimeout time.Duration `yaml:"connection_timeout"`
+		}{
+			ConnectionTimeout: 60 * time.Second,
+		},
+		Logging: struct {
+			Level string `yaml:"level"`
+		}{
+			Level: "warn",
+		},
+	}
+}

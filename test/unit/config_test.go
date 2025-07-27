@@ -1,7 +1,6 @@
 package unit
 
 import (
-	"fmt"
 	"testing"
 
 	"gom2k/internal/config"
@@ -203,18 +202,7 @@ func applyTestDefaults(config *types.Config) {
 	}
 }
 
-func validateTestConfig(config *types.Config) error {
-	if config.MQTT.Broker.Host == "" {
-		return fmt.Errorf("MQTT broker host is required")
-	}
-	if config.MQTT.Broker.Port == 0 {
-		return fmt.Errorf("MQTT broker port is required")
-	}
-	if len(config.Kafka.Brokers) == 0 {
-		return fmt.Errorf("at least one Kafka broker is required")
-	}
-	if !config.Bridge.Features.MQTTToKafka && !config.Bridge.Features.KafkaToMQTT {
-		return fmt.Errorf("at least one bridge direction must be enabled")
-	}
-	return nil
+func validateTestConfig(cfg *types.Config) error {
+	// Use the actual config package validation function in test mode
+	return config.ValidateConfig(cfg, true)
 }
