@@ -53,13 +53,8 @@ func LoadFromFile(configPath string) (*types.Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal bridge config: %w", err)
 	}
 	
-	// Workaround for viper boolean unmarshaling issues
-	if viperInstance.IsSet("bridge.features.mqtt_to_kafka") {
-		config.Bridge.Features.MQTTToKafka = viperInstance.GetBool("bridge.features.mqtt_to_kafka")
-	}
-	if viperInstance.IsSet("bridge.features.kafka_to_mqtt") {
-		config.Bridge.Features.KafkaToMQTT = viperInstance.GetBool("bridge.features.kafka_to_mqtt")
-	}
+	// Fix viper boolean unmarshaling issues
+	applyViperWorkarounds(viperInstance, config)
 	
 	// Apply defaults and validate
 	applyDefaults(config)
@@ -106,27 +101,8 @@ func LoadForTesting(configPath string) (*types.Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal bridge config: %w", err)
 	}
 	
-	// Workaround for viper boolean unmarshaling issues
-	if testViperInstance.IsSet("bridge.features.mqtt_to_kafka") {
-		config.Bridge.Features.MQTTToKafka = testViperInstance.GetBool("bridge.features.mqtt_to_kafka")
-	}
-	if testViperInstance.IsSet("bridge.features.kafka_to_mqtt") {
-		config.Bridge.Features.KafkaToMQTT = testViperInstance.GetBool("bridge.features.kafka_to_mqtt")
-	}
-	
-	// Additional workarounds for nested structures that may not unmarshal properly
-	if testViperInstance.IsSet("kafka.consumer.group_id") {
-		config.Kafka.Consumer.GroupID = testViperInstance.GetString("kafka.consumer.group_id")
-	}
-	if testViperInstance.IsSet("bridge.kafka.auto_create_topics") {
-		config.Bridge.Kafka.AutoCreateTopics = testViperInstance.GetBool("bridge.kafka.auto_create_topics")
-	}
-	if testViperInstance.IsSet("bridge.kafka.default_partitions") {
-		config.Bridge.Kafka.DefaultPartitions = testViperInstance.GetInt("bridge.kafka.default_partitions")
-	}
-	if testViperInstance.IsSet("bridge.kafka.replication_factor") {
-		config.Bridge.Kafka.ReplicationFactor = testViperInstance.GetInt("bridge.kafka.replication_factor")
-	}
+	// Fix viper boolean unmarshaling issues
+	applyViperWorkarounds(testViperInstance, config)
 	
 	// Apply defaults and validate in test mode (skips SSL file validation)
 	applyDefaults(config)
@@ -174,6 +150,31 @@ func applyDefaults(config *types.Config) {
 		config.Bridge.Kafka.ReplicationFactor = 1
 	}
 	// QoS defaults to 0 (no explicit setting needed)
+}
+
+// applyViperWorkarounds fixes viper's boolean and nested struct unmarshaling issues
+func applyViperWorkarounds(v *viper.Viper, config *types.Config) {
+	// Boolean unmarshaling fixes
+	if v.IsSet("bridge.features.mqtt_to_kafka") {
+		config.Bridge.Features.MQTTToKafka = v.GetBool("bridge.features.mqtt_to_kafka")
+	}
+	if v.IsSet("bridge.features.kafka_to_mqtt") {
+		config.Bridge.Features.KafkaToMQTT = v.GetBool("bridge.features.kafka_to_mqtt")
+	}
+	
+	// Nested structure unmarshaling fixes
+	if v.IsSet("kafka.consumer.group_id") {
+		config.Kafka.Consumer.GroupID = v.GetString("kafka.consumer.group_id")
+	}
+	if v.IsSet("bridge.kafka.auto_create_topics") {
+		config.Bridge.Kafka.AutoCreateTopics = v.GetBool("bridge.kafka.auto_create_topics")
+	}
+	if v.IsSet("bridge.kafka.default_partitions") {
+		config.Bridge.Kafka.DefaultPartitions = v.GetInt("bridge.kafka.default_partitions")
+	}
+	if v.IsSet("bridge.kafka.replication_factor") {
+		config.Bridge.Kafka.ReplicationFactor = v.GetInt("bridge.kafka.replication_factor")
+	}
 }
 
 // validate checks configuration for required fields and logical consistency
