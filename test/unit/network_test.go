@@ -1,7 +1,9 @@
-package validation
+package unit
 
 import (
 	"testing"
+	
+	"gom2k/pkg/validation"
 )
 
 func TestValidateBrokerAddress(t *testing.T) {
@@ -36,7 +38,7 @@ func TestValidateBrokerAddress(t *testing.T) {
 			name:        "missing port",
 			address:     "broker.example.com",
 			wantErr:     true,
-			errContains: "must include port",
+			errContains: "missing port",
 		},
 		{
 			name:        "invalid port",
@@ -66,7 +68,7 @@ func TestValidateBrokerAddress(t *testing.T) {
 	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateBrokerAddress(tt.address)
+			err := validation.ValidateBrokerAddress(tt.address)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateBrokerAddress() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -129,7 +131,7 @@ func TestValidateMQTTBroker(t *testing.T) {
 	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateMQTTBroker(tt.host, tt.port)
+			err := validation.ValidateMQTTBroker(tt.host, tt.port)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateMQTTBroker() error = %v, wantErr %v", err, tt.wantErr)
 			}

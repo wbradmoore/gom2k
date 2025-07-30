@@ -18,6 +18,7 @@ type MQTTToKafkaBridge struct {
 	config       *types.Config
 	errorChan    chan error  // Channel to propagate errors from message handler
 	errorCount   int         // Counter for failed messages
+	deadLetterQueue *DeadLetterQueue // Dead letter queue for failed messages
 }
 
 // NewMQTTToKafkaBridge creates a new MQTT to Kafka bridge
@@ -43,6 +44,14 @@ func (b *MQTTToKafkaBridge) Start(ctx context.Context) error {
 	if err := b.kafkaProducer.Connect(); err != nil {
 		return fmt.Errorf("failed to connect Kafka producer: %w", err)
 	}
+
+	// Initialize dead letter queue
+	b.deadLetterQueue = NewDeadLetterQueue(&b.config.Bridge, b.kafkaProducer, b.mqttClient)
+	if b.deadLetterQueue != nil {
+		if err := b.deadLetterQueue.Start(); err != nil {
+			return fmt.Errorf("failed to start dead letter queue: %w", err)
+		}
+	}
 	
 	// Subscribe to MQTT topics
 	if err := b.mqttClient.Subscribe(); err != nil {
@@ -59,6 +68,13 @@ func (b *MQTTToKafkaBridge) Start(ctx context.Context) error {
 // Stop gracefully shuts down the bridge
 func (b *MQTTToKafkaBridge) Stop() error {
 	log.Println("Stopping MQTT to Kafka bridge")
+	
+	// Stop dead letter queue first
+	if b.deadLetterQueue != nil {
+		if err := b.deadLetterQueue.Stop(); err != nil {
+			log.Printf("Error stopping dead letter queue: %v", err)
+		}
+	}
 	
 	if b.mqttClient != nil {
 		b.mqttClient.Disconnect()
@@ -80,13 +96,20 @@ func (b *MQTTToKafkaBridge) handleMQTTMessage(mqttMsg *types.MQTTMessage) {
 	kafkaMsg, err := kafka.ConvertMQTTMessage(mqttMsg, kafkaTopic)
 	if err != nil {
 		b.reportError(fmt.Errorf("failed to convert MQTT message from topic %s: %w", mqttMsg.Topic, err))
+		if b.deadLetterQueue != nil {
+			b.deadLetterQueue.HandleFailedMessage(mqttMsg, err.Error(), "mqtt-to-kafka", mqttMsg.Topic, kafkaTopic)
+		}
 		return
 	}
 	
 	// Send to Kafka
 	ctx := context.Background()
 	if err := b.kafkaProducer.WriteMessage(ctx, kafkaMsg); err != nil {
-		b.reportError(fmt.Errorf("failed to send message to Kafka topic %s: %w", kafkaTopic, err))
+		errorMsg := fmt.Errorf("failed to send message to Kafka topic %s: %w", kafkaTopic, err)
+		b.reportError(errorMsg)
+		if b.deadLetterQueue != nil {
+			b.deadLetterQueue.HandleFailedMessage(mqttMsg, errorMsg.Error(), "mqtt-to-kafka", mqttMsg.Topic, kafkaTopic)
+		}
 		return
 	}
 	

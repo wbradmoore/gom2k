@@ -20,6 +20,7 @@ type KafkaToMQTTBridge struct {
 	wg            sync.WaitGroup // For goroutine lifecycle management
 	cancel        context.CancelFunc // To signal goroutine shutdown
 	errorChan     chan error      // Channel to receive errors from goroutine
+	deadLetterQueue *DeadLetterQueue // Dead letter queue for failed messages
 }
 
 // NewKafkaToMQTTBridge creates a new Kafka to MQTT bridge
@@ -42,6 +43,23 @@ func (b *KafkaToMQTTBridge) Start(ctx context.Context) error {
 	b.mqttClient = mqtt.NewClient(&b.config.MQTT)
 	if err := b.mqttClient.Connect(); err != nil {
 		return fmt.Errorf("failed to connect MQTT client: %w", err)
+	}
+
+	// Initialize Kafka producer for dead letter queue (if DLQ is enabled)
+	var kafkaProducer *kafka.Producer
+	if b.config.Bridge.DeadLetter.Enabled && b.config.Bridge.DeadLetter.KafkaTopic != "" {
+		kafkaProducer = kafka.NewProducer(&b.config.Kafka, &b.config.Bridge)
+		if err := kafkaProducer.Connect(); err != nil {
+			return fmt.Errorf("failed to connect Kafka producer for DLQ: %w", err)
+		}
+	}
+
+	// Initialize dead letter queue  
+	b.deadLetterQueue = NewDeadLetterQueue(&b.config.Bridge, kafkaProducer, b.mqttClient)
+	if b.deadLetterQueue != nil {
+		if err := b.deadLetterQueue.Start(); err != nil {
+			return fmt.Errorf("failed to start dead letter queue: %w", err)
+		}
 	}
 	
 	log.Println("Kafka to MQTT bridge started successfully")
@@ -72,6 +90,13 @@ func (b *KafkaToMQTTBridge) Stop() error {
 	// Wait for goroutine to finish
 	b.wg.Wait()
 	log.Println("Kafka consumer goroutine stopped")
+
+	// Stop dead letter queue
+	if b.deadLetterQueue != nil {
+		if err := b.deadLetterQueue.Stop(); err != nil {
+			log.Printf("Error stopping dead letter queue: %v", err)
+		}
+	}
 	
 	if b.kafkaConsumer != nil {
 		if err := b.kafkaConsumer.Close(); err != nil {
@@ -120,12 +145,20 @@ func (b *KafkaToMQTTBridge) handleKafkaMessage(kafkaMsg *types.KafkaMessage) err
 	// Convert Kafka message back to MQTT format
 	mqttMsg, err := kafka.ConvertKafkaMessage(kafkaMsg)
 	if err != nil {
-		return fmt.Errorf("failed to convert Kafka message: %w", err)
+		errorMsg := fmt.Errorf("failed to convert Kafka message: %w", err)
+		if b.deadLetterQueue != nil {
+			b.deadLetterQueue.HandleFailedMessage(kafkaMsg, errorMsg.Error(), "kafka-to-mqtt", kafkaMsg.Topic, "")
+		}
+		return errorMsg
 	}
 	
 	// Validate the MQTT topic
 	if mqttMsg.Topic == "" {
-		return fmt.Errorf("empty MQTT topic from Kafka message")
+		errorMsg := fmt.Errorf("empty MQTT topic from Kafka message")
+		if b.deadLetterQueue != nil {
+			b.deadLetterQueue.HandleFailedMessage(kafkaMsg, errorMsg.Error(), "kafka-to-mqtt", kafkaMsg.Topic, "")
+		}
+		return errorMsg
 	}
 	
 	// Check if this topic should be republished (avoid loops)
@@ -136,7 +169,11 @@ func (b *KafkaToMQTTBridge) handleKafkaMessage(kafkaMsg *types.KafkaMessage) err
 	
 	// Publish to MQTT
 	if err := b.mqttClient.Publish(mqttMsg.Topic, mqttMsg.Payload, mqttMsg.QoS, mqttMsg.Retained); err != nil {
-		return fmt.Errorf("failed to publish to MQTT: %w", err)
+		errorMsg := fmt.Errorf("failed to publish to MQTT: %w", err)
+		if b.deadLetterQueue != nil {
+			b.deadLetterQueue.HandleFailedMessage(kafkaMsg, errorMsg.Error(), "kafka-to-mqtt", kafkaMsg.Topic, mqttMsg.Topic)
+		}
+		return errorMsg
 	}
 	
 	log.Printf("✓ Forwarded Kafka message: %s -> %s", kafkaMsg.Topic, mqttMsg.Topic)

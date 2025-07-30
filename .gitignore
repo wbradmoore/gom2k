@@ -1,5 +1,9 @@
 # Binaries
-gom2k
+/gom2k
+
+# Project documentation
+CLAUDE.md
+/.*.md
 
 # SSL/TLS certificate files
 *.jks

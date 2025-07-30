@@ -1,9 +1,11 @@
-package validation
+package unit
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
+	
+	"gom2k/pkg/validation"
 )
 
 func TestValidateSSLFilePath(t *testing.T) {
@@ -65,7 +67,7 @@ func TestValidateSSLFilePath(t *testing.T) {
 	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateSSLFilePath(tt.path, tt.allowedDirs)
+			err := validation.ValidateSSLFilePath(tt.path, tt.allowedDirs)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateSSLFilePath() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -111,7 +113,7 @@ func TestValidateConfigPath(t *testing.T) {
 	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateConfigPath(tt.path)
+			err := validation.ValidateConfigPath(tt.path)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateConfigPath() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -122,15 +124,3 @@ func TestValidateConfigPath(t *testing.T) {
 	}
 }
 
-func contains(s, substr string) bool {
-	return len(substr) > 0 && len(s) >= len(substr) && s[len(s)-len(substr):] == substr || len(s) > len(substr) && s[:len(s)-len(substr)+1][len(s)-len(substr):] == substr || s == substr || (len(s) > 0 && len(substr) > 0 && findSubstring(s, substr) != -1)
-}
-
-func findSubstring(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
-}

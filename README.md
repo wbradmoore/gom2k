@@ -103,6 +103,7 @@ go build -o gom2k ./cmd/gom2k
 - Go 1.19+
 - MQTT broker (Mosquitto, etc.)
 - Apache Kafka 2.8+
+- **mkcert** (for SSL testing) - install from system package manager
 
 ## License
 

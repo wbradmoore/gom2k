@@ -1,0 +1,27 @@
+# Example bridge configuration with dead letter queue enabled
+mapping:
+  kafka_prefix: "gom2k"
+  max_topic_levels: 3
+
+retry:
+  connection_timeout: "60s"
+
+logging:
+  level: "info"
+
+features:
+  mqtt_to_kafka: true
+  kafka_to_mqtt: true
+
+kafka:
+  auto_create_topics: true
+  default_partitions: 3
+  replication_factor: 1
+
+# Dead letter queue configuration for handling failed messages
+dead_letter:
+  enabled: true
+  kafka_topic: "gom2k.dead-letter"  # Failed messages sent to this Kafka topic
+  mqtt_topic: "gom2k/dead-letter"   # Failed messages also sent to this MQTT topic
+  max_retries: 3                    # Retry failed messages up to 3 times
+  retry_interval: "30s"             # Wait 30 seconds between retry attempts

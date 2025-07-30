@@ -1,6 +1,6 @@
 # GOM2K MQTT-Kafka Bridge Makefile
 
-.PHONY: help build test test-unit test-integration test-coverage test-race clean lint
+.PHONY: help build test test-unit test-integration test-ssl test-coverage test-race clean lint
 
 # Default target
 help:
@@ -11,6 +11,7 @@ help:
 	@echo "  test            - Run all tests"
 	@echo "  test-unit       - Run unit tests only (fast, no external deps)"
 	@echo "  test-integration- Run integration tests (requires MQTT/Kafka)"
+	@echo "  test-ssl        - Run SSL/TLS tests"
 	@echo "  test-coverage   - Run tests with coverage report"
 	@echo "  test-race       - Run tests with race detection"
 	@echo "  lint            - Run linters"
@@ -44,6 +45,11 @@ test-integration:
 	@echo "Running integration tests..."
 	@echo "Note: This requires running MQTT and Kafka services"
 	go test ./test/integration/... -v -count=1 -tags=integration
+
+# Run SSL/TLS tests
+test-ssl:
+	@echo "Running SSL/TLS tests..."
+	cd test && ./test.sh ssl
 
 # Run tests with coverage
 test-coverage:
@@ -85,6 +91,7 @@ deps:
 	@echo "Installing dependencies..."
 	go mod download
 	go mod tidy
+
 
 # Quick development cycle: test + build
 dev: test-unit build

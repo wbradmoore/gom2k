@@ -16,11 +16,8 @@ func ValidateBrokerAddress(address string) error {
 	
 	host, portStr, err := net.SplitHostPort(address)
 	if err != nil {
-		// Check if it's just a hostname without port
-		if !strings.Contains(err.Error(), "missing port") {
-			return fmt.Errorf("invalid broker address format: %w", err)
-		}
-		return fmt.Errorf("broker address must include port (host:port)")
+		// Just pass through the original error - net.SplitHostPort gives clear messages
+		return fmt.Errorf("invalid broker address format: %w", err)
 	}
 	
 	// Validate host
@@ -130,3 +127,4 @@ func validatePort(portStr string) error {
 func isAlphaNumeric(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
 }
+

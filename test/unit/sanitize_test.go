@@ -1,7 +1,9 @@
-package validation
+package unit
 
 import (
 	"testing"
+	
+	"gom2k/pkg/validation"
 )
 
 func TestSanitizeClientID(t *testing.T) {
@@ -34,7 +36,7 @@ func TestSanitizeClientID(t *testing.T) {
 	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := SanitizeClientID(tt.input)
+			result := validation.SanitizeClientID(tt.input)
 			if result != tt.expected {
 				t.Errorf("SanitizeClientID() = %v, want %v", result, tt.expected)
 			}
@@ -72,7 +74,7 @@ func TestSanitizeUsername(t *testing.T) {
 	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := SanitizeUsername(tt.input)
+			result := validation.SanitizeUsername(tt.input)
 			if result != tt.expected {
 				t.Errorf("SanitizeUsername() = %v, want %v", result, tt.expected)
 			}
@@ -110,7 +112,7 @@ func TestSanitizePassword(t *testing.T) {
 	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := SanitizePassword(tt.input)
+			result := validation.SanitizePassword(tt.input)
 			if result != tt.expected {
 				t.Errorf("SanitizePassword() = %v, want %v", result, tt.expected)
 			}
@@ -159,7 +161,7 @@ func TestSanitizeConfigString(t *testing.T) {
 	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := SanitizeConfigString(tt.input, tt.maxLength)
+			result := validation.SanitizeConfigString(tt.input, tt.maxLength)
 			if result != tt.expected {
 				t.Errorf("SanitizeConfigString() = %v, want %v", result, tt.expected)
 			}

@@ -81,4 +81,11 @@ type BridgeConfig struct {
 		DefaultPartitions int  `yaml:"default_partitions"`
 		ReplicationFactor int  `yaml:"replication_factor"`
 	} `yaml:"kafka"`
+	DeadLetter struct {
+		Enabled       bool   `yaml:"enabled"`
+		KafkaTopic    string `yaml:"kafka_topic"`
+		MQTTTopic     string `yaml:"mqtt_topic"`
+		MaxRetries    int    `yaml:"max_retries"`
+		RetryInterval time.Duration `yaml:"retry_interval"`
+	} `yaml:"dead_letter"`
 }

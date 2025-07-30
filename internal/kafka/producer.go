@@ -85,27 +85,19 @@ func (p *Producer) WriteMessage(ctx context.Context, msg *types.KafkaMessage) er
 	
 	err := p.writer.WriteMessages(ctx, kafkaMsg)
 	if err != nil {
-		// Check if it's a "topic doesn't exist" error and auto-create if enabled
-		if strings.Contains(err.Error(), "Unknown Topic Or Partition") && p.bridgeConfig.Kafka.AutoCreateTopics {
+		// If auto-creation is enabled, try to create the topic and retry once
+		if p.bridgeConfig.Kafka.AutoCreateTopics {
 			if createErr := p.createTopicIfNeeded(ctx, msg.Topic); createErr != nil {
 				return fmt.Errorf("failed to create topic %s: %w", msg.Topic, createErr)
 			}
 			
-			// Retry the message after topic creation with backoff
-			for i := 0; i < 3; i++ {
-				time.Sleep(time.Duration(i*200) * time.Millisecond)
-				err = p.writer.WriteMessages(ctx, kafkaMsg)
-				if err == nil {
-					return nil
-				}
-				if !strings.Contains(err.Error(), "Unknown Topic Or Partition") {
-					break // Different error, don't retry
-				}
-				log.Printf("Retry %d: Topic still not available, waiting...", i+1)
+			// Single retry after topic creation with brief delay
+			time.Sleep(500 * time.Millisecond)
+			if retryErr := p.writer.WriteMessages(ctx, kafkaMsg); retryErr == nil {
+				return nil
 			}
-			return fmt.Errorf("failed to write message to Kafka after topic creation and retries: %w", err)
 		}
-		
+		// Return original error - Kafka client gives clear error messages
 		return fmt.Errorf("failed to write message to Kafka: %w", err)
 	}
 	
@@ -299,25 +291,17 @@ func (p *Producer) buildTopicConfig(topicName string) kafka.TopicConfig {
 	}
 }
 
-// handleTopicCreationResult processes the result of topic creation, handling "already exists" scenarios.
+// handleTopicCreationResult processes the result of topic creation.
 func (p *Producer) handleTopicCreationResult(err error, topicName string) error {
 	if err != nil {
-		if p.isTopicAlreadyExistsError(err) {
-			log.Printf("Topic %s already exists", topicName)
-			return nil
-		}
-		return fmt.Errorf("failed to create topic: %w", err)
+		// Just log the error and continue - topic might already exist or have other issues
+		// The original write error will be returned to user if the topic truly doesn't work
+		log.Printf("Topic creation attempted for %s: %v", topicName, err)
+		return nil
 	}
 	
 	log.Printf("✓ Successfully created Kafka topic: %s", topicName)
 	return nil
-}
-
-// isTopicAlreadyExistsError determines if an error indicates the topic already exists.
-func (p *Producer) isTopicAlreadyExistsError(err error) bool {
-	errMsg := err.Error()
-	return strings.Contains(errMsg, "already exists") || 
-		   strings.Contains(errMsg, "Topic already exists")
 }
 
 // markTopicAsCreated updates the local cache to indicate this topic has been processed.
