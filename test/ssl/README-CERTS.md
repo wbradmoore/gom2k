@@ -1,36 +1,26 @@
 # SSL Test Certificates
 
 ## Overview
-This directory contains simplified SSL certificate generation using **mkcert** for GOM2K testing.
+This directory contains long-lived SSL test certificates for GOM2K testing. The certificates are pre-generated and committed to the repository for convenience.
 
-## Prerequisites (Required)
-**mkcert** is required for SSL certificate generation. Install from your system package manager:
-
-```bash
-# macOS
-brew install mkcert
-
-# Linux (Ubuntu/Debian)
-sudo apt install libnss3-tools
-# Then download mkcert binary from: https://github.com/FiloSottile/mkcert#linux
-
-# Or use manual installation: https://github.com/FiloSottile/mkcert#installation
-```
+## Prerequisites (Only for regeneration)
+If you need to regenerate certificates, you'll need:
+- **OpenSSL** for certificate generation
+- **Java keytool** for JKS keystore creation
 
 ## Quick Start
-Certificates are generated automatically when running SSL tests:
+The certificates are already generated and committed to the repository. Just run tests:
 ```bash
 cd test && ./test.sh ssl
 ```
 
 ## How It Works
 
-### Automatic Generation with mkcert
-- Uses **mkcert** for simplified, trusted certificate generation
-- Automatically installs local CA on first run
-- Certificates are trusted by your system (no browser warnings)
-- If certificates exist and are less than 30 days old, they are reused
-- No manual intervention required for normal testing
+### Pre-generated Certificates
+- Long-lived certificates (valid for 10 years) committed to repository
+- No external dependencies required for testing
+- Self-signed certificates for testing only
+- Certificates are automatically used by tests
 
 ### Manual Regeneration
 If you need to regenerate certificates manually:
@@ -41,9 +31,11 @@ cd test/ssl
 
 ## Certificate Details
 
-### Generated Files
-- `localhost+1.pem` - Server certificate (mkcert format)
-- `localhost+1-key.pem` - Server private key (mkcert format)
+### Certificate Files
+- `server.crt` - Server certificate (PEM format)
+- `server.key` - Server private key (PEM format)
+- `localhost+1.pem` - Server certificate (mkcert-compatible name)
+- `localhost+1-key.pem` - Server private key (mkcert-compatible name)
 - `kafka.keystore.jks` - Kafka server keystore (password: testpass)
 - `kafka.truststore.jks` - Kafka truststore (password: testpass)
 - `ca.crt` - Certificate Authority certificate
@@ -52,12 +44,13 @@ cd test/ssl
 - `mqtt-ca.crt` - MQTT CA certificate (symlink)
 
 ### Key Features
-- **System trusted** - No browser warnings or manual CA installation
-- **mkcert managed** - Automatically handles CA creation and installation
+- **Long-lived certificates** - Valid for 10 years (no expiration issues)
+- **Pre-committed** - No external tools required for testing
 - **Subject Alternative Names (SAN)** - Works with modern TLS requirements
-- **localhost + 127.0.0.1** - Supports both hostname and IP access
+- **Multiple hostnames** - Supports localhost, *.localhost, test.local, *.test.local
+- **IP addresses** - Supports 127.0.0.1 and ::1
 - **Consistent passwords** - All keystores use "testpass" for simplicity
-- **Single source** - Same certificate used for both Kafka and MQTT
+- **Multiple formats** - Both PEM and JKS formats available
 
 ## Troubleshooting
 

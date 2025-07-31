@@ -5,12 +5,14 @@
 CLAUDE.md
 /.*.md
 
-# SSL/TLS certificate files
+# SSL/TLS certificate files (except test certs)
 *.jks
 *.p12
 *.pem
 *.key
 *.crt
+# Allow test certificates
+!test/ssl/certs/*
 
 # Configuration files with secrets
 configs/config.yaml
